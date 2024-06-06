@@ -1,0 +1,113 @@
+// Copyright (C) 2024 Y. Zheng
+// SPDX-License-Identifier: BSD-3-Clause
+#pragma once
+#include <boost/numeric/odeint.hpp>
+#include <boost/numeric/odeint/external/eigen/eigen_algebra.hpp>
+#include <boost/numeric/odeint/external/eigen/eigen_algebra_dispatcher.hpp>
+#include "pde_info.h"
+typedef Eigen::Matrix<double, 2 * dim, 1> state_t;
+
+namespace boost::numeric::odeint::detail {
+	template<int Rows, int Cols>
+	struct is_range<Eigen::Matrix<double, Rows, Cols>> :
+#if BOOST_VERSION >= 185000
+	std::integral_constant<bool, (Rows < 0 || Cols < 0)>
+#else
+    mpl::bool_<(Rows < 0 || Cols < 0)>
+#endif
+    {};
+}
+
+struct no_control {
+	const PDE_info& info;
+	no_control(const PDE_info& info) noexcept : info(info) {}
+	template <typename T>
+	void operator()(const T& in, T& out, double) const {
+		out.noalias() = info.A_bar * in;
+	}
+};
+
+struct forward {
+	const PDE_info& info;
+	const Eigen::Matrix<double, mu_dim, 1> mu;
+	forward(const PDE_info& info, Eigen::Matrix<double, mu_dim, 1> C_mu) noexcept
+		: info(info), mu(C_mu) {}
+	void operator()(const state_t& in, state_t& out, double) const {
+		const Eigen::Index _dim = info.A.rows();
+		out.noalias() = info.A_bar * in;
+		out.template topRows<dim>(_dim) += info.L_0 * mu.bottomRows(info.L_0.cols());
+		out.template bottomRows<dim>(_dim) -= info.M_0.transpose() * mu.topRows(info.M_0.rows());
+	}
+};
+
+struct closed_loop {
+	const PDE_info& info;
+	closed_loop(const PDE_info& info) noexcept : info(info) {}
+	template <typename T, typename U>
+	void operator()(const T& in, U&& out, double) const {
+		const Eigen::Index _dim = info.A.rows();
+		Eigen::Matrix<double, mu_dim, 1> eta;
+		eta.topRows(info.M_0.rows()) = info.M_0 * in.template topRows<dim>(_dim);
+		eta.bottomRows(info.L_0.cols()) = info.L_0.transpose() * in.template bottomRows<dim>(_dim);
+		const Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * info.eta_inv(eta);
+		out.noalias() = info.A_bar * in;
+		out.template topRows<dim>(_dim) += info.L_0 * C_mu.bottomRows(info.L_0.cols());
+		out.template bottomRows<dim>(_dim) -= info.M_0.transpose() * C_mu.topRows(info.M_0.rows());
+	}
+};
+
+struct closed_loop_with_r {
+	const PDE_info& info;
+	closed_loop_with_r(const PDE_info& info) noexcept : info(info) {}
+	typedef Eigen::Matrix<double, 2 * dim + 1, 1> state_t;
+	void operator()(const state_t& in, state_t& out, double t) const {
+		const Eigen::Index _dim = info.A.rows();
+		auto z = in.topRows<dim>(_dim);
+		auto lambda = in.middleRows<dim>(_dim, _dim);
+		Eigen::Matrix<double, mu_dim, 1> eta;
+		eta.topRows(info.M_0.rows()) = info.M_0 * z;
+		eta.bottomRows(info.L_0.cols()) = info.L_0.transpose() * lambda;
+		double N = info._.eval(eta)[0];
+		const Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * info.eta_inv(eta);
+		out.template topRows<dim + dim>(_dim + _dim).noalias() = info.A_bar * in.topRows<dim + dim>(_dim + _dim);
+		out.template topRows<dim>(_dim) += info.L_0 * C_mu.bottomRows(info.L_0.cols());
+		out.template middleRows<dim>(_dim, _dim) -= info.M_0.transpose() * C_mu.topRows(info.M_0.rows());
+		eta.topRows(info.M_0.rows()).setZero();
+		out[_dim + _dim] = 0.5 * (z.dot(info.C * z) + lambda.dot(info.Gamma * lambda) + eta.dot(info.C_hat * eta)) + N - C_mu.dot(eta);
+	}
+};
+
+class closed_loop_with_der : closed_loop {
+	Eigen::Matrix<double, 2 * dim, mu_dim> mult_C_hat;
+	Eigen::Matrix<double, mu_dim, 2 * dim> mult2;
+public:
+	closed_loop_with_der(const PDE_info& info) noexcept : closed_loop(info) {
+		mult_C_hat.setZero();
+		mult_C_hat.topRightCorner<dim, Eigen::Dynamic>(info.L_0.rows(), info.L_0.cols()) = info.L_0;
+		mult_C_hat.bottomLeftCorner<dim, Eigen::Dynamic>(info.M_0.cols(), info.M_0.rows()) = -info.M_0.transpose();
+        mult_C_hat = mult_C_hat * info.C_hat;
+		mult2.setZero();
+		mult2.topLeftCorner(info.M_0.rows(), dim) = info.M_0;
+		mult2.bottomRightCorner(info.L_0.cols(), dim) = info.L_0.transpose();
+	}
+	typedef Eigen::Matrix<double, 2 * dim, 1 + 2 * dim> state_t;
+	void operator()(const state_t& in, state_t& out, double t) const {
+		const Eigen::Index _dim = info.A.rows();
+		closed_loop::operator()(in.col(0), out.col(0), t);
+		out.rightCols<2 * dim>(2 * _dim).noalias() = (info.A_bar + mult_C_hat * info.jacobian_eta_inv(mult2 * in.col(0)) * mult2) * in.rightCols<2 * dim>(2 * _dim);
+	}
+};
+
+struct backward {
+	const PDE_info& info;
+	const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array;
+	backward(const PDE_info& info, const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array) noexcept
+		: info(info), mu_array(mu_array) {}
+	void operator()(const state_t& in, state_t& out, double t) const {
+		const Eigen::Index _dim = info.A.rows();
+		Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * info.interp<Eigen::Matrix<double, mu_dim, 1>>(t, mu_array.colwise().cbegin()); // CAUTION already scaled!
+		out.noalias() = info.A_bar * in;
+		out.topRows<dim>(_dim) += info.L_0 * C_mu.bottomRows(info.L_0.cols());
+		out.bottomRows<dim>(_dim) -= info.M_0.transpose() * C_mu.topRows(info.M_0.rows());
+	}
+};
