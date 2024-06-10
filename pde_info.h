@@ -36,18 +36,18 @@ namespace nonlinearity {
 
     template <alpha_sized T>
     __attribute__((pure)) auto f(const Eigen::MatrixBase<T>& M0x) noexcept {
-        return (1 - 0.5 * (M0x.array() + M0x.array().atan())).matrix();
+        return -(M0x.array() + M0x.array().atan()).matrix();
     }
     template <alpha_sized T>
     __attribute__((pure)) auto f_der(const Eigen::MatrixBase<T>& M0x) noexcept {
         auto sqr = M0x.array().abs2();
-        return ((-0.5 * sqr - 1) / (sqr + 1)).matrix();
+        return ((-sqr - 2) / (sqr + 1)).matrix();
     }
     __attribute__((pure)) inline std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim>
     f_dder(const Eigen::Matrix<double, M_dim, 1>& M0x) noexcept {
         std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim> ret;
         const double tmp = M0x[0] * M0x[0] + 1;
-        ret[0] = M0x / (tmp * tmp);
+        ret[0] = 2 * M0x / (tmp * tmp);
         return ret;
     }
 }
@@ -185,9 +185,9 @@ struct PDE_info {
         auto _eta = eta.derived().matrix().eval();
         return _eta + C_inv.solve(_.gradient(_eta));
     }
-    Eigen::Matrix<double, mu_dim, mu_dim> jacobian_eta_inv(const Eigen::Matrix<double, mu_dim, 1>& eta) const {
-        // _.dual_argstat_der(mu).inverse()
-        return Eigen::Matrix<double, mu_dim, mu_dim>::Identity() + C_inv.solve(_.dder(eta));
+    Eigen::Matrix<double, mu_dim, mu_dim> C_hat_jacobian_eta_inv(const Eigen::Matrix<double, mu_dim, 1>& eta) const {
+        // C_hat * _.dual_argstat_der(mu).inverse()
+        return C_hat + _.dder(eta);
     }
 };
 
