@@ -6,7 +6,7 @@
 #include <memory>
 #include <iterator>
 #include <Eigen/Core>
-#include <Eigen/QR>
+#include <Eigen/LU>
 #include <span>
 #include "solvers.h"
 
@@ -54,7 +54,7 @@ namespace nonlinearity {
 
 class Ntilde {
     Eigen::Matrix<double, mu_dim, mu_dim> C_hat;
-    Eigen::ColPivHouseholderQR<Eigen::Matrix<double, mu_dim, mu_dim>> C_inv;
+    Eigen::FullPivLU<Eigen::Matrix<double, mu_dim, mu_dim>> C_inv;
 public:
     Ntilde() = default;
     Ntilde(const Eigen::Matrix<double, mu_dim, mu_dim>& C_hat) : C_hat(C_hat), C_inv(C_hat) {}
@@ -104,7 +104,7 @@ public:
         Eigen::Matrix<double, mu_dim, mu_dim> ret;
         ret.setIdentity();
         ret -= C_inv.solve(dder(dual_argstat(mu).first));
-        return ret.colPivHouseholderQr().inverse();
+        return ret.fullPivLu().inverse();
     }
 };
 
@@ -164,7 +164,7 @@ struct PDE_info {
     Eigen::Matrix<double, Eigen::Dynamic, dim, Eigen::AutoAlign, dim, dim> M_0;
     Eigen::Matrix<double, dim, Eigen::Dynamic, Eigen::AutoAlign, dim, dim> L_0;
     Eigen::Matrix<double, mu_dim, mu_dim> C_hat;
-    Eigen::ColPivHouseholderQR<Eigen::Matrix<double, mu_dim, mu_dim>> C_inv;
+    Eigen::FullPivLU<Eigen::Matrix<double, mu_dim, mu_dim>> C_inv;
     Ntilde _;
     Eigen::Matrix<double, dim, dim> Gamma;
     std::vector<double> t;

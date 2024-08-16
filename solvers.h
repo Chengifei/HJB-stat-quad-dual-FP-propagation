@@ -5,6 +5,7 @@
 #include <optional>
 #include <cstdio>
 #include <cmath>
+#include <Eigen/QR>
 
 struct iterative_solver_exc {
     char str[32];

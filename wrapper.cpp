@@ -8,7 +8,7 @@ solver::solver(T1&& A, T2&& C, T3&& M_0, T4&& L_0, T5&& C_hat, T6&& Gamma, T7&& 
     info.M_0 = M_0;
     info.L_0 = L_0;
     info.C_hat = C_hat;
-    info.C_inv = info.C_hat.colPivHouseholderQr();
+    info.C_inv = info.C_hat.fullPivLu();
     new (&info._) Ntilde(-info.C_hat);
     info.Gamma = Gamma;
     info.t = t;
