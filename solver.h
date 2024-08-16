@@ -24,7 +24,7 @@ public:
 
     typedef Eigen::Matrix<double, mu_dim, Eigen::Dynamic> mu_matrix;
 
-    std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::Matrix<double, dim, Eigen::Dynamic>>
+    std::tuple<double, double, Eigen::Matrix<double, dim, 1>>
     W(const Eigen::Matrix<double, dim, 1>& x, std::size_t T) const;
 
     template <std::random_access_iterator Iter>
@@ -39,8 +39,8 @@ public:
     ode_rhs(const Eigen::Matrix<double, dim, 1>& x, Eigen::Matrix<double, 2 * dim, 1> state, double T) const;
     Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>
     ode_next_euler(const Eigen::Matrix<double, dim, 1>& x, const Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>& z_Pzq, Eigen::Index T) const;
-    std::pair<Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>, Eigen::VectorXd>
-    solve(const Eigen::Matrix<double, dim, 1>& x, std::size_t T) const; 
+    std::tuple<double, Eigen::Matrix<double, dim, 1>, Eigen::Matrix<double, dim, 1>>
+    solve(const Eigen::Matrix<double, dim, 1>& x, std::span<const double> t, std::span<const std::size_t> N, std::span<const double> err) const;
     Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>
     solve_times(const Eigen::Matrix<double, dim, 1>& x, std::size_t T) const;
 };

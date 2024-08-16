@@ -1,4 +1,5 @@
 #include "solver.h"
+#include "transform.h"
 
 std::vector<double> linspace(double begin, double end, std::size_t size) {
     if (size == 0)
@@ -9,6 +10,12 @@ std::vector<double> linspace(double begin, double end, std::size_t size) {
         ret[i] = begin + step * i;
     ret[size - 1] = end;
     return ret;
+}
+
+std::vector<double> logspace(double begin, double end, std::size_t size) {
+    auto lin = linspace(begin, end, size);
+    std::transform(lin.begin(), lin.end(), lin.begin(), [](double e) { return std::exp2(e); });
+    return lin;
 }
 
 void PDE_info::STM(cache_t& cache) const {
@@ -33,26 +40,13 @@ void verify(bool b, std::string t = {}) {
 }
 
 typedef Eigen::Matrix<double, mu_dim, Eigen::Dynamic> mu_matrix;
-std::tuple<Eigen::VectorXd, Eigen::VectorXd, Eigen::Matrix<double, dim, Eigen::Dynamic>>
+std::tuple<double, double, Eigen::Matrix<double, dim, 1>>
 solver::W(const Eigen::Matrix<double, dim, 1>& x, std::size_t T) const {
     const Eigen::Index _dim = info.A.rows();
-    auto inits = solve_times(x, T);
-    Eigen::VectorXd ret(info.t.size());
-    Eigen::VectorXd err(info.t.size());
-    typedef Eigen::Matrix<double, 2 * dim + 1, 1> state_t;
-    using namespace boost::numeric::odeint;
-    auto stepper = make_dense_output<runge_kutta_dopri5<state_t>>(1e-10, 1e-10);
-    for (std::size_t i = 0; i != info.t.size(); ++i) {
-        state_t state;
-        state.template topRows<dim + dim>(_dim + _dim) = inits.col(i);
-        state[_dim + _dim] = 0;
-        err[i] = (state.topRows<dim>(_dim) - x).norm();
-        integrate_adaptive(stepper, closed_loop_with_r{ info },
-            state, info.t.front(), info.t[i], 1e-5);
-        err[i] += (state.middleRows<dim>(_dim) - Eigen::Matrix<double, dim, 1>::Zero(_dim, 1)).norm();
-        ret[i] = state[_dim + _dim];
-    }
-    return std::make_tuple(std::move(ret), std::move(err), inits.bottomRows<dim>(_dim));
+    std::vector<double> errs = logspace(-3, -23, 5);
+    std::vector<std::size_t> N(info.t.size() - 1, 50);
+    auto [w, grad, err] = solve(x, info.t, N, errs);
+    return std::make_tuple(w, err.norm(), grad);
 }
 template <std::random_access_iterator Iter>
 Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>
@@ -62,40 +56,40 @@ solver::qint_LTI(const Eigen::Matrix<double, dim, 1>& x, const mu_matrix& mu_arr
 template <std::random_access_iterator Iter>
 Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>
 solver::qint_LTI(const Eigen::Matrix<double, dim, 1>& x, const mu_matrix& mu_array, Iter T, const Iter begin, const Iter end) const {
-		using namespace boost::numeric::odeint;
-		assert(T >= begin && T <= end);
-		Eigen::Matrix<double, 2 * dim, Eigen::Dynamic> ret(2 * info.A.rows(), end - begin);
-		typedef Eigen::Matrix<double, 2 * dim, 1> state_t;
-		if (T > begin) [[likely]] {
-		    auto stepper = make_controlled<runge_kutta_dopri5<state_t>>(1e-10, 1e-10);
-			state_t zeros = Eigen::Matrix<double, 2 * dim, 1>::Zero(2 * info.A.rows());
-			Eigen::Index counter = T - begin;
-			integrate_times(stepper, backward{ info, mu_array },
-				zeros,
-				std::make_reverse_iterator(T), std::make_reverse_iterator(begin), -1e-5,
-				[&](const state_t& state, double t) {
-					ret.col(--counter) = state;
-				});
-			}
-		if (T < end) {
-            auto stepper = make_dense_output<runge_kutta_dopri5<state_t>>(1e-10, 1e-10);
-			state_t zeros = Eigen::Matrix<double, 2 * dim, 1>::Zero(2 * info.A.rows());
-			Eigen::Index counter = T - begin;
-			integrate_times(stepper, closed_loop{ info }, zeros, T, end, 1e-5,
-				[&](const state_t& state, double t) {
-					ret.col(counter++) = state;
-				});
-		}
-		Eigen::Matrix<double, 2 * dim, 2 * dim> boundary;
-		boundary.topRows<dim>(info.A.rows()) = cache.LTI_STM[0].template topRows<dim>(info.A.rows());
-		boundary.bottomRows<dim>(info.A.rows()) = cache.LTI_STM[T - 1 - begin].template bottomRows<dim>(info.A.rows());
-		Eigen::Matrix<double, 2 * dim, 1> shift;
-		shift.topRows<dim>(info.A.rows()) = x - ret.topLeftCorner(info.A.rows(), 1);
-		shift.bottomRows<dim>(info.A.rows()).setZero();
-		Eigen::Matrix<double, 2 * dim, 1> corr = boundary.colPivHouseholderQr().solve(shift);
-		for (std::size_t t = 0; t != end - begin; ++t)
-			ret.col(t) += cache.LTI_STM[t] * corr;
-		return ret;
+    using namespace boost::numeric::odeint;
+    assert(T >= begin && T <= end);
+    Eigen::Matrix<double, 2 * dim, Eigen::Dynamic> ret(2 * info.A.rows(), end - begin);
+    typedef Eigen::Matrix<double, 2 * dim, 1> state_t;
+    if (T > begin) [[likely]] {
+        auto stepper = make_controlled<runge_kutta_dopri5<state_t>>(1e-10, 1e-10);
+        state_t zeros = Eigen::Matrix<double, 2 * dim, 1>::Zero(2 * info.A.rows());
+        Eigen::Index counter = T - begin;
+        integrate_times(stepper, backward{ info, mu_array },
+            zeros,
+            std::make_reverse_iterator(T), std::make_reverse_iterator(begin), -1e-5,
+            [&](const state_t& state, double t) {
+                ret.col(--counter) = state;
+            });
+        }
+    if (T < end) {
+        auto stepper = make_dense_output<runge_kutta_dopri5<state_t>>(1e-10, 1e-10);
+        state_t zeros = Eigen::Matrix<double, 2 * dim, 1>::Zero(2 * info.A.rows());
+        Eigen::Index counter = T - begin;
+        integrate_times(stepper, closed_loop{ info }, zeros, T, end, 1e-5,
+            [&](const state_t& state, double t) {
+                ret.col(counter++) = state;
+            });
+    }
+    Eigen::Matrix<double, 2 * dim, 2 * dim> boundary;
+    boundary.topRows<dim>(info.A.rows()) = cache.LTI_STM[0].template topRows<dim>(info.A.rows());
+    boundary.bottomRows<dim>(info.A.rows()) = cache.LTI_STM[T - 1 - begin].template bottomRows<dim>(info.A.rows());
+    Eigen::Matrix<double, 2 * dim, 1> shift;
+    shift.topRows<dim>(info.A.rows()) = x - ret.topLeftCorner(info.A.rows(), 1);
+    shift.bottomRows<dim>(info.A.rows()).setZero();
+    Eigen::Matrix<double, 2 * dim, 1> corr = boundary.colPivHouseholderQr().solve(shift);
+    for (std::size_t t = 0; t != end - begin; ++t)
+        ret.col(t) += cache.LTI_STM[t] * corr;
+    return ret;
 }
 std::pair<Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>, double> solver::ode_init(const Eigen::Matrix<double, dim, 1>& x, std::size_t len) const {
     fixed_point_check check{ __func__ };
@@ -164,17 +158,106 @@ solver::ode_next_euler(const Eigen::Matrix<double, dim, 1>& x, const Eigen::Matr
         z_lambda.col(t) += der[t] * corr;
     return z_lambda;
 }
-std::pair<Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>, Eigen::VectorXd>
-solver::solve(const Eigen::Matrix<double, dim, 1>& x, std::size_t T) const {
-    auto [z_Pzq, err] = ode_init(x, T);
-    Eigen::VectorXd res(info.t.size());
-    std::fill(res.begin(), res.begin() + T, err);
-    for (T; T != info.t.size(); ++T) {
-        z_Pzq = ode_next_euler(x, z_Pzq, T - 1);
-        mu_matrix mu = info.eta_inv(mult * z_Pzq.leftCols(T + 1));
-        res[T] = (mu - info.eta_inv(mult * qint_LTI(x, mu, info.t.cbegin() + T + 1, info.t.cbegin()))).norm();
+void write_mu(const PDE_info& info, mu_matrix& mu, const Eigen::Matrix<double, dim + dim, Eigen::Dynamic>& pq, const RS_interp& RS) {
+    const Eigen::Index N = pq.cols() - 1;
+    for (Eigen::Index j = 0; j != N; ++j) {
+        auto p0 = pq.col(j).topRows<dim>();
+        auto q0 = pq.col(j).bottomRows<dim>();
+        const auto& [R0, S0] = RS[2 * j];
+        const auto& [R1, S1] = RS[2 * j + 1];
+        Eigen::Matrix<double, mu_dim, 1> y;
+        y.topRows<M_dim>() = info.M_0 * (p0 + R0 * q0);
+        y.bottomRows<L_dim>() = info.L_0.transpose() * (S0 * q0);
+        mu.col(2 * j) = info.eta_inv(y);
+        Eigen::Matrix<double, dim, 1> p1 = 0.5 * (p0 + pq.col(j + 1).topRows<dim>());
+        Eigen::Matrix<double, dim, 1> q1 = 0.5 * (q0 + pq.col(j + 1).bottomRows<dim>());
+        y.topRows<M_dim>() = info.M_0 * (p1 + R1 * q1);
+        y.bottomRows<L_dim>() = info.L_0.transpose() * (S1 * q1);
+        mu.col(2 * j + 1) = info.eta_inv(y);
     }
-    return std::make_pair(z_Pzq.leftCols(T), std::move(res));
+    auto p0 = pq.col(N).topRows<dim>();
+    auto q0 = pq.col(N).bottomRows<dim>();
+    const auto& [R0, S0] = RS[2 * N];
+    Eigen::Matrix<double, mu_dim, 1> y;
+    y.topRows<M_dim>() = info.M_0 * (p0 + R0 * q0);
+    y.bottomRows<L_dim>() = info.L_0.transpose() * (S0 * q0);
+    mu.col(2 * N) = info.eta_inv(y);
+}
+std::tuple<double, Eigen::Matrix<double, dim, 1>, Eigen::Matrix<double, dim, 1>>
+solver::solve(const Eigen::Matrix<double, dim, 1>& x, std::span<const double>, std::span<const std::size_t> N, std::span<const double> errs) const {
+    std::vector<RS_interp> RS;
+    RS.reserve(info.t.size() - 1);
+    for (std::size_t i = 0; i != info.t.size() - 1; ++i)
+        RS.emplace_back(info, info.t[i], info.t[i + 1], 2 * N[i]);
+    using namespace boost::numeric::odeint;
+    typedef Eigen::Matrix<double, 2 * dim, 1> state_t;
+    auto stepper = runge_kutta4<state_t>();
+    state_t tmp;
+    tmp.topRows<dim>() = x;
+    tmp.bottomRows<dim>().setZero();
+    Eigen::Matrix<double, dim, Eigen::Dynamic> P(dim, info.t.size());
+    {
+    int i = 0;
+    integrate_n_steps(stepper, closed_loop{info}, tmp, info.t.front(), info.t[1] - info.t[0], info.t.size() - 1, [&](const state_t& state, double) {
+        P.col(i++) = state.topRows<dim>();
+    });
+    }
+    Eigen::Matrix<double, dim, Eigen::Dynamic> Q(dim, info.t.size());
+    Q.setZero(); // FIXME
+    std::vector<mu_matrix> mu;
+    for (int i = 0; i != info.t.size() - 1; ++i)
+        mu.push_back(mu_matrix::Zero(mu_dim, 2 * N[i] + 1));
+    bool down = false;
+    for (double err : errs) {
+        int k = info.t.size() - 1;
+        for (std::size_t counter = 0; counter < 100 * info.t.size() * info.t.size(); ++counter) {
+            if (down) {
+                down = false;
+                ++k;
+            }
+            else if (k > 0)
+                --k;
+            else
+                break;
+            RS_backward pq_ode{info, RS[k], mu[k]};
+            Eigen::Matrix<double, dim + dim, Eigen::Dynamic> pq(dim + dim, N[k] + 1);
+            for (uint_fast8_t i = 0; i != 255; ++i) {
+                mu_matrix old_mu = mu[k];
+                tmp.topRows<dim>() = P.col(k);
+                tmp.bottomRows<dim>().setZero();
+                {
+                int j = 0;
+                integrate_n_steps(stepper, pq_ode, tmp, info.t[k], (info.t[k + 1] - info.t[k]) / N[k], N[k], [&](const state_t& state, double) {
+                    pq.col(j++) = state;
+                });
+                }
+                auto p = pq.col(N[k]).topRows<dim>();
+                if (k + 1 == info.t.size() - 1)
+                    Q.col(k + 1).setZero(); // FIXME
+                else if ((p + RS[k].R_end() * Q.col(k + 1) - P.col(k + 1)).norm() > err) {
+                    P.col(k + 1) = p + RS[k].R_end() * Q.col(k + 1);
+                    down = true;
+                    break;
+                }
+                pq.bottomRows<dim>().colwise() += (Q.col(k + 1) - pq.col(N[k]).bottomRows<dim>()).eval();
+                write_mu(info, mu[k], pq, RS[k]);
+                Q.col(k) = RS[k].S_begin() * pq.col(0).bottomRows<dim>();
+                double diff = (mu[k] - old_mu).norm();
+                if (diff < err)
+                    break;
+            }
+        }
+    }
+    Eigen::Matrix<double, 2 * dim + 1, 1> state;
+    state.topRows<dim>() = x;
+    state.middleRows<dim>(dim) = Q.col(0);
+    state[2 * dim] = 0;
+    {
+    auto stepper = make_controlled<runge_kutta_dopri5<decltype(state)>>(1e-10, 1e-10);
+    integrate_adaptive(stepper, closed_loop_with_r{ info },
+        state, info.t.front(), info.t.back(), 1e-5);
+    }
+    return std::make_tuple(state[2 * dim], Q.col(0), state.middleRows<dim>(dim).eval());
 }
 Eigen::Matrix<double, 2 * dim, Eigen::Dynamic>
 solver::solve_times(const Eigen::Matrix<double, dim, 1>& x, std::size_t T) const {

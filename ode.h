@@ -5,6 +5,7 @@
 #include <boost/numeric/odeint/external/eigen/eigen_algebra.hpp>
 #include <boost/numeric/odeint/external/eigen/eigen_algebra_dispatcher.hpp>
 #include "pde_info.h"
+#include "transform.h"
 typedef Eigen::Matrix<double, 2 * dim, 1> state_t;
 
 namespace boost::numeric::odeint::detail {
@@ -108,5 +109,29 @@ struct backward {
         out.noalias() = info.A_bar * in;
         out.topRows<dim>(_dim) += info.L_0 * C_mu.bottomRows(info.L_0.cols());
         out.bottomRows<dim>(_dim) -= info.M_0.transpose() * C_mu.topRows(info.M_0.rows());
+    }
+};
+
+struct RS_backward {
+    const PDE_info& info;
+    const RS_interp& RS;
+    const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array;
+    Eigen::Matrix<double, dim, dim> Sc1;
+    RS_backward(const PDE_info& info, const RS_interp& RS, const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array) noexcept
+        : info(info), RS(RS), mu_array(mu_array) {
+        Sc1 = info.C - info.M_0.transpose() * info.C_hat.topLeftCorner<M_dim, M_dim>() * info.M_0;
+    }
+    void operator()(const state_t& in, state_t& out, double t) const {
+        const Eigen::Index _dim = info.A.rows();
+        Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * mu_array.col(RS.time_nearest(t));
+        auto p = in.topRows<dim>(_dim);
+        out.bottomRows<dim>(_dim).noalias() = -RS.S_inv_nearest(t, Sc1 * p);
+        out.topRows<dim>(_dim).noalias() = info.A * p - RS.R(t) * out.bottomRows<dim>(_dim);
+        state_t tmp;
+        tmp.setZero();
+        tmp.topRows<dim>(_dim) = info.L_0 * C_mu.bottomRows(info.L_0.cols());
+        tmp.bottomRows<dim>(_dim) = -RS.S_inv_nearest(t, info.M_0.transpose() * C_mu.topRows(info.M_0.rows()));
+        tmp.topRows<dim>(_dim) -= RS.R(t) * tmp.bottomRows<dim>(_dim);
+        out += tmp;
     }
 };

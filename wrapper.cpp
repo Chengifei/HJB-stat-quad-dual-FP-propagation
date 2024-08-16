@@ -239,7 +239,7 @@ PyObject* solve(PyObject* self, PyObject* const args[], Py_ssize_t argc) {
     if (argc < 2)
         return nullptr;
     PyArrayObject* const _x = reinterpret_cast<PyArrayObject*>(args[0]);
-    Eigen::Index T = PyLong_AsLong(args[1]);
+    PyArrayObject* const _t = reinterpret_cast<PyArrayObject*>(args[1]);
     if (!PyArray_Check(_x)) {
         PyErr_BadArgument();
         return nullptr;
@@ -248,19 +248,23 @@ PyObject* solve(PyObject* self, PyObject* const args[], Py_ssize_t argc) {
         PyErr_BadArgument();
         return nullptr;
     }
+    if (!PyArray_Check(_t)) {
+        PyErr_BadArgument();
+        return nullptr;
+    }
+    if (PyArray_TYPE(_t) != NPY_DOUBLE) {
+        PyErr_BadArgument();
+        return nullptr;
+    }
     std::copy(static_cast<double*>(PyArray_DATA(_x)), static_cast<double*>(PyArray_DATA(_x)) + dim, x.data());
     PyThreadState* _save;
     Py_UNBLOCK_THREADS
-    auto [W, err, Wx] = static_cast<_solver*>(self)->W(x, T);
+    auto [W, err, Wx] = static_cast<_solver*>(self)->W(x, 0);
     Py_BLOCK_THREADS
-    npy_intp dim = W.size();
-    assert(err.size() == W.size());
-    PyArrayObject* py1 = reinterpret_cast<PyArrayObject*>(PyExc(PyArray_SimpleNew(1, &dim, NPY_DOUBLE), nullptr));
-    std::copy_n(W.data(), W.size(), static_cast<double*>(PyArray_DATA(py1)));
-    PyArrayObject* py2 = reinterpret_cast<PyArrayObject*>(PyExc(PyArray_SimpleNew(1, &dim, NPY_DOUBLE), nullptr));
-    std::copy_n(err.data(), err.size(), static_cast<double*>(PyArray_DATA(py2)));
-    npy_intp dims[2] = { Wx.cols(), ::dim};
-    PyArrayObject* py3 = reinterpret_cast<PyArrayObject*>(PyExc(PyArray_SimpleNew(2, dims, NPY_DOUBLE), nullptr));
+    PyObject* py1 = PyExc(PyFloat_FromDouble(W), nullptr);
+    PyObject* py2 = PyExc(PyFloat_FromDouble(err), nullptr);
+    npy_intp dims = ::dim;
+    PyArrayObject* py3 = reinterpret_cast<PyArrayObject*>(PyExc(PyArray_SimpleNew(1, &dims, NPY_DOUBLE), nullptr));
     std::copy_n(Wx.data(), Wx.size(), static_cast<double*>(PyArray_DATA(py3)));
     auto py_ret = PyTuple_Pack(3, py1, py2, py3);
     Py_DECREF(py1);
