@@ -6,11 +6,12 @@
 #include <memory>
 #include <iterator>
 #include <Eigen/Core>
+#include <Eigen/SparseCore>
 #include <Eigen/LU>
 #include <span>
 #include "solvers.h"
 
-constexpr int dim = 3;
+constexpr int dim = 25;
 constexpr int M_dim = 1;
 constexpr int L_dim = 1;
 constexpr int mu_dim = M_dim + L_dim;
@@ -36,18 +37,18 @@ namespace nonlinearity {
 
     template <alpha_sized T>
     __attribute__((pure)) auto f(const Eigen::MatrixBase<T>& M0x) noexcept {
-        return -(M0x.array() + M0x.array().atan()).matrix();
+        return M0x.array().atan().matrix();
     }
     template <alpha_sized T>
     __attribute__((pure)) auto f_der(const Eigen::MatrixBase<T>& M0x) noexcept {
         auto sqr = M0x.array().abs2();
-        return ((-sqr - 2) / (sqr + 1)).matrix();
+        return (1 / (sqr + 1)).matrix();
     }
     __attribute__((pure)) inline std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim>
     f_dder(const Eigen::Matrix<double, M_dim, 1>& M0x) noexcept {
         std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim> ret;
         const double tmp = M0x[0] * M0x[0] + 1;
-        ret[0] = 2 * M0x / (tmp * tmp);
+        ret[0] = -2 * M0x / (tmp * tmp);
         return ret;
     }
 }
@@ -156,10 +157,9 @@ public:
     }
 };
 
-struct cache_t;
-
 struct PDE_info {
     Eigen::Matrix<double, dim, dim> A;
+    Eigen::SparseMatrix<double> A_sparse;
     Eigen::Matrix<double, dim, dim> C;
     Eigen::Matrix<double, Eigen::Dynamic, dim, Eigen::AutoAlign, dim, dim> M_0;
     Eigen::Matrix<double, dim, Eigen::Dynamic, Eigen::AutoAlign, dim, dim> L_0;
@@ -174,23 +174,22 @@ struct PDE_info {
         linear_interpolator li{t.cbegin(), t.cend()};
         return li.template operator()<T, It>(a, begin);
     }
-    void STM(cache_t&) const;
     template <typename T> requires std::derived_from<T, Eigen::PlainObjectBase<T>>
     Eigen::Matrix<double, mu_dim, T::ColsAtCompileTime> eta_inv(const Eigen::DenseBase<T>& eta) const {
         return eta.derived() + C_inv.solve(_.gradient(eta.derived()));
+    }
+    template <typename T> requires std::derived_from<T, Eigen::PlainObjectBase<T>>
+    Eigen::Matrix<double, mu_dim, T::ColsAtCompileTime> C_hat_eta_inv(const Eigen::DenseBase<T>& eta) const {
+        return C_hat * eta.derived() + _.gradient(eta.derived());
     }
     template <typename T>
     Eigen::Matrix<double, mu_dim, T::ColsAtCompileTime>
     eta_inv(const Eigen::DenseBase<T>& eta) const {
         auto _eta = eta.derived().matrix().eval();
-        return _eta + C_inv.solve(_.gradient(_eta));
+        return eta_inv(_eta);
     }
     Eigen::Matrix<double, mu_dim, mu_dim> C_hat_jacobian_eta_inv(const Eigen::Matrix<double, mu_dim, 1>& eta) const {
         // C_hat * _.dual_argstat_der(mu).inverse()
         return C_hat + _.dder(eta);
     }
-};
-
-struct cache_t {
-    std::vector<Eigen::Matrix<double, 2 * dim, 2 * dim>> LTI_STM;
 };

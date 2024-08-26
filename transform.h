@@ -2,6 +2,7 @@
 #include "pde_info.h"
 #include <cassert>
 #include <vector>
+#include <functional>
 #include <Eigen/LU>
 #include <unsupported/Eigen/MatrixFunctions>
 
@@ -13,42 +14,31 @@ struct RS_base {
     auto S(double t) const {
         return static_cast<const T*>(this)->S(t);
     }
-    template <typename V>
-    Eigen::Matrix<double, dim, V::ColsAtCompileTime> S(double t, V vec) const {
-        return static_cast<const T*>(this)->S(t, vec);
-    }
     auto S_begin() const {
         return static_cast<const T*>(this)->S_begin();
+    }
+    auto R_end() const {
+        return static_cast<const T*>(this)->R_end();
     }
     template <typename V>
     Eigen::Matrix<double, dim, V::ColsAtCompileTime> S_inv(double t, V vec) const {
         return static_cast<const T*>(this)->S_inv(t, vec);
     }
-    template <typename V>
-    Eigen::Matrix<double, dim, V::ColsAtCompileTime> S_inv_nearest(double t, V vec) const {
-        return static_cast<const T*>(this)->S_inv_nearest(t, vec);
-    }
 };
 
-class RS_interp : public RS_base<RS_interp> {
+class RS_nearest : public RS_base<RS_nearest> {
     const double init;
     const double len;
-    std::size_t n;
+    const double step_inv;
     std::vector<Eigen::Matrix<double, dim, dim>> _R;
     std::vector<Eigen::Matrix<double, dim, dim>> _S;
-    std::vector<Eigen::FullPivLU<Eigen::Matrix<double, dim, dim>>> _S_inv;
+    std::vector<Eigen::PartialPivLU<Eigen::Matrix<double, dim, dim>>> _S_inv;
 public:
-    __attribute__((pure)) std::pair<std::ptrdiff_t, double> time_idx(double t) const noexcept {
-        double i;
-        double frac = std::modf((t - init) / len * n, &i);
-        if (frac < 1e-14)
-            frac = 0;
-        return std::make_pair(static_cast<std::ptrdiff_t>(i), frac);
+    __attribute__((pure)) std::ptrdiff_t time_idx(double t) const noexcept {
+        assert(t >= init && t - init <= len);
+        return std::lround((t - init) * step_inv);
     }
-    __attribute__((pure)) std::ptrdiff_t time_nearest(double t) const {
-        return std::lround((t - init) / len * n);
-    }
-    RS_interp(const PDE_info& info, double init, double end, std::size_t n) noexcept : init(init), len(end - init), n(n) {
+    RS_nearest(const PDE_info& info, double init, double end, std::size_t n) noexcept : init(init), len(end - init), step_inv(n / len) {
         const double step = len / n;
         _R.reserve(n + 1);
         _S.reserve(n + 1);
@@ -62,44 +52,25 @@ public:
             _S_inv.emplace_back(_S.back());
         }
     }
-    __attribute__((pure)) Eigen::Matrix<double, dim, dim> R(double t) const noexcept {
-        assert(t >= init && t - init <= len);
-        auto [idx, frac] = time_idx(t);
-        if (frac) [[unlikely]]
-            return (1 - frac) * _R[idx] + frac * _R[idx + 1];
-        else
-            return _R[idx];
+    __attribute__((pure)) const Eigen::Matrix<double, dim, dim>& R(double t) const noexcept {
+        return _R[time_idx(t)];
     }
-    __attribute__((pure)) Eigen::Matrix<double, dim, dim> S(double t) const noexcept {
-        assert(t >= init && t - init <= len);
-        auto [idx, frac] = time_idx(t);
-        if (frac) [[unlikely]]
-            return (1 - frac) * _S[idx] + frac * _S[idx + 1];
-        else
-            return _S[idx];
+    __attribute__((pure)) const Eigen::Matrix<double, dim, dim>& S(double t) const noexcept {
+        return _S[time_idx(t)];
     }
-    const Eigen::Matrix<double, dim, dim>& S_begin() const {
+    const Eigen::Matrix<double, dim, dim>& S_begin() const noexcept {
         return _S[0];
     }
-    const Eigen::Matrix<double, dim, dim>& R_end() const {
+    const Eigen::Matrix<double, dim, dim>& R_end() const noexcept {
         return _R.back();
     }
-    template <typename V>
-    Eigen::Matrix<double, dim, V::ColsAtCompileTime> S(double t, V vec) const {
-        return S(t) * vec;
+    Eigen::Matrix<double, dim, 1> S_inv(double t, const Eigen::Matrix<double, dim, 1>& vec) const {
+        return _S_inv[time_idx(t)].solve(vec);
     }
-    template <typename V>
-    Eigen::Matrix<double, dim, V::ColsAtCompileTime> S_inv(double t, V vec) const {
-        assert(t >= init && t - init <= len);
-        auto [idx, frac] = time_idx(t);
-        return (1 - frac) * _S_inv[idx].solve(vec) + frac * _S_inv[idx + 1].solve(vec);
+    Eigen::Matrix<double, dim, 1> S_inv(std::size_t t, const Eigen::Matrix<double, dim, 1>& vec) const {
+        return _S_inv[t].solve(vec);
     }
-    template <typename V>
-    Eigen::Matrix<double, dim, V::ColsAtCompileTime> S_inv_nearest(double t, V vec) const {
-        assert(t >= init && t - init <= len);
-        return _S_inv[time_nearest(t)].solve(vec);
-    }
-    auto operator[](std::ptrdiff_t n) const {
-        return std::make_pair(_R[n], _S[n]);
+    auto operator[](std::ptrdiff_t n) const noexcept {
+        return std::make_pair(std::cref(_R[n]), std::cref(_S[n]));
     }
 };

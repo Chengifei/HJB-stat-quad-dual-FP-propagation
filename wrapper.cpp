@@ -1,9 +1,10 @@
 // Copyright (C) 2024 Y. Zheng
 // SPDX-License-Identifier: BSD-3-Clause
 #include "solver.h"
-template <typename T1, typename T2, typename T3, typename T4, typename T5, typename T6, typename T7>
-solver::solver(T1&& A, T2&& C, T3&& M_0, T4&& L_0, T5&& C_hat, T6&& Gamma, T7&& t) {
+template <typename T1, typename T2, typename T3, typename T4, typename T5, typename T6>
+solver::solver(T1&& A, T2&& C, T3&& M_0, T4&& L_0, T5&& C_hat, T6&& Gamma) {
     info.A = A;
+    info.A_sparse = A.sparseView();
     info.C = C;
     info.M_0 = M_0;
     info.L_0 = L_0;
@@ -11,12 +12,10 @@ solver::solver(T1&& A, T2&& C, T3&& M_0, T4&& L_0, T5&& C_hat, T6&& Gamma, T7&& 
     info.C_inv = info.C_hat.fullPivLu();
     new (&info._) Ntilde(-info.C_hat);
     info.Gamma = Gamma;
-    info.t = t;
     info.A_bar.topLeftCorner<dim, dim>(info.A.rows(), info.A.cols()) = info.A;
     info.A_bar.bottomLeftCorner<dim, dim>(info.C.rows(), info.C.cols()) = info.C_hat(0, 0) * (info.M_0).transpose() * info.M_0 - info.C;
     info.A_bar.bottomRightCorner<dim, dim>(info.A.cols(), info.A.rows()) = -info.A.transpose();
     info.A_bar.topRightCorner<dim, dim>(info.Gamma.rows(), info.Gamma.cols()) = -info.Gamma;
-    info.STM(cache);
     mult.setZero();
     mult.topLeftCorner(info.M_0.rows(), dim) = info.M_0;
     mult.bottomRightCorner(info.L_0.cols(), dim) = info.L_0.transpose();
@@ -155,6 +154,7 @@ public:
 #else
 #include "Python.h"
 #include "numpy/arrayobject.h"
+#include <new>
 
 struct _solver : PyObject, solver {};
 
@@ -170,6 +170,18 @@ static PyModuleDef Module = {
     nullptr
 };
 
+PyObject* alloc(PyTypeObject* cls, Py_ssize_t n) {
+    assert(n == 0);
+    auto ret = static_cast<PyObject*>(::operator new(sizeof(_solver), std::align_val_t(alignof(_solver))));
+    ret->ob_refcnt = 1;
+    ret->ob_type = cls;
+    return ret;
+}
+
+void tp_free(void* obj) noexcept {
+    ::operator delete(obj, alignof(_solver));
+}
+
 void dealloc(PyObject* self) noexcept {
     static_cast<_solver*>(self)->~_solver();
 }
@@ -177,7 +189,7 @@ void dealloc(PyObject* self) noexcept {
 template <typename T>
 T numpy_to_eigen(PyArrayObject* arr) {
     npy_intp* dim = PyArray_SHAPE(arr);
-    return Eigen::Map<T>(static_cast<T::Scalar*>(PyArray_DATA(arr)), dim[0], dim[1]);
+    return Eigen::Map<T, Eigen::Aligned8>(static_cast<T::Scalar*>(PyArray_DATA(arr)), dim[0], dim[1]);
 }
 
 struct Python_API_Exception {};
@@ -197,9 +209,9 @@ T PyOnly(T t, U good_ret) {
 }
 
 int init(PyObject* self, PyObject* args, PyObject* kwds) noexcept {
-    static const char* keys[] = { "A", "C", "M_0", "L_0", "C_hat", "Gamma", "t", nullptr };
-    PyArrayObject* arr[7];
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOOO", const_cast<char**>(keys), arr, arr + 1, arr + 2, arr + 3, arr + 4, arr + 5, arr + 6))
+    static const char* keys[] = { "A", "C", "M_0", "L_0", "C_hat", "Gamma", nullptr };
+    PyArrayObject* arr[6];
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "OOOOOO", const_cast<char**>(keys), arr, arr + 1, arr + 2, arr + 3, arr + 4, arr + 5))
         return -1;
     for (auto i : arr) {
         if (!PyArray_Check(i)) {
@@ -215,54 +227,68 @@ int init(PyObject* self, PyObject* args, PyObject* kwds) noexcept {
             return -1;
         }
     }
-    for (int i = 0; i != 6; ++i)
+    for (int i = 0; i != 5; ++i)
         if (PyArray_NDIM(arr[i]) != 2) {
             PyErr_BadArgument();
             return -1;
         }
-    std::vector<double> t(static_cast<double*>(PyArray_DATA(arr[6])), static_cast<double*>(PyArray_DATA(arr[6])) + PyArray_SIZE(arr[6]));
     using namespace Eigen;
     new (static_cast<solver*>(static_cast<_solver*>(self))) solver(
-        numpy_to_eigen<Matrix<double, dim, dim, DontAlign>>(arr[0]),
-        numpy_to_eigen<Matrix<double, dim, dim, DontAlign>>(arr[1]),
-        numpy_to_eigen<Matrix<double, Dynamic, dim, DontAlign>>(arr[2]),
-        numpy_to_eigen<Matrix<double, dim, Dynamic, DontAlign>>(arr[3]),
-        numpy_to_eigen<Matrix<double, mu_dim, mu_dim, DontAlign>>(arr[4]),
-        numpy_to_eigen<Matrix<double, dim, dim, DontAlign>>(arr[5]),
-        std::move(t)
+        numpy_to_eigen<Matrix<double, dim, dim>>(arr[0]),
+        numpy_to_eigen<Matrix<double, dim, dim>>(arr[1]),
+        numpy_to_eigen<Matrix<double, Dynamic, dim>>(arr[2]),
+        numpy_to_eigen<Matrix<double, dim, Dynamic>>(arr[3]),
+        numpy_to_eigen<Matrix<double, mu_dim, mu_dim>>(arr[4]),
+        numpy_to_eigen<Matrix<double, dim, dim>>(arr[5])
     );
     return 0;
 }
 
+std::vector<double> linspace(double begin, double end, std::size_t size) {
+    if (size == 0)
+        return {};
+    std::vector<double> ret(size);
+    const double step = (end - begin) / size;
+    for (std::size_t i = 0; i != size; ++i)
+        ret[i] = begin + step * i;
+    ret[size - 1] = end;
+    return ret;
+}
+
+std::vector<double> logspace(double begin, double end, std::size_t size) {
+    auto lin = linspace(begin, end, size);
+    std::transform(lin.begin(), lin.end(), lin.begin(), [](double e) { return std::exp2(e); });
+    return lin;
+}
+
+PyArrayObject* validate_numpy_array(PyObject* arr, NPY_TYPES type) {
+    if (!PyArray_Check(arr))
+        throw;
+    auto ret = reinterpret_cast<PyArrayObject*>(arr);
+    if (PyArray_TYPE(ret) != type)
+        throw;
+    return ret;
+}
+
 PyObject* solve(PyObject* self, PyObject* const args[], Py_ssize_t argc) {
     Eigen::Matrix<double, dim, 1> x;
-    if (argc < 2)
+    std::vector<double> t;
+    std::vector<std::size_t> N;
+    std::vector<double> errs = logspace(-2, -27, 5);
+    if (argc < 3)
         return nullptr;
-    PyArrayObject* const _x = reinterpret_cast<PyArrayObject*>(args[0]);
-    PyArrayObject* const _t = reinterpret_cast<PyArrayObject*>(args[1]);
-    if (!PyArray_Check(_x)) {
-        PyErr_BadArgument();
-        return nullptr;
-    }
-    if (PyArray_TYPE(_x) != NPY_DOUBLE) {
-        PyErr_BadArgument();
-        return nullptr;
-    }
-    if (!PyArray_Check(_t)) {
-        PyErr_BadArgument();
-        return nullptr;
-    }
-    if (PyArray_TYPE(_t) != NPY_DOUBLE) {
-        PyErr_BadArgument();
-        return nullptr;
-    }
+    PyArrayObject* const _x = validate_numpy_array(args[0], NPY_DOUBLE);
+    PyArrayObject* const _t = validate_numpy_array(args[1], NPY_DOUBLE);
+    PyArrayObject* const _N = validate_numpy_array(args[2], NPY_UINT64);
     std::copy(static_cast<double*>(PyArray_DATA(_x)), static_cast<double*>(PyArray_DATA(_x)) + dim, x.data());
+    t.insert(t.end(), static_cast<double*>(PyArray_DATA(_t)), static_cast<double*>(PyArray_DATA(_t)) + PyArray_SIZE(_t));
+    N.insert(N.end(), static_cast<std::uint64_t*>(PyArray_DATA(_N)), static_cast<std::uint64_t*>(PyArray_DATA(_N)) + PyArray_SIZE(_N));
     PyThreadState* _save;
     Py_UNBLOCK_THREADS
-    auto [W, err, Wx] = static_cast<_solver*>(self)->W(x, 0);
+    auto [W, Wx, err] = static_cast<_solver*>(self)->solve(x, t, N, errs);
     Py_BLOCK_THREADS
     PyObject* py1 = PyExc(PyFloat_FromDouble(W), nullptr);
-    PyObject* py2 = PyExc(PyFloat_FromDouble(err), nullptr);
+    PyObject* py2 = PyExc(PyFloat_FromDouble(err.norm()), nullptr);
     npy_intp dims = ::dim;
     PyArrayObject* py3 = reinterpret_cast<PyArrayObject*>(PyExc(PyArray_SimpleNew(1, &dims, NPY_DOUBLE), nullptr));
     std::copy_n(Wx.data(), Wx.size(), static_cast<double*>(PyArray_DATA(py3)));
@@ -287,7 +313,9 @@ PyTypeObject optimal_control_problem_type {
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
     .tp_methods = methods,
     .tp_init = init,
-    .tp_new = PyType_GenericNew
+    .tp_alloc = alloc,
+    .tp_new = PyType_GenericNew,
+    .tp_free = tp_free
 };
 
 PyMODINIT_FUNC

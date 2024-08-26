@@ -114,24 +114,64 @@ struct backward {
 
 struct RS_backward {
     const PDE_info& info;
-    const RS_interp& RS;
+    const RS_nearest& RS;
     const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array;
     Eigen::Matrix<double, dim, dim> Sc1;
-    RS_backward(const PDE_info& info, const RS_interp& RS, const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array) noexcept
+    RS_backward(const PDE_info& info, const RS_nearest& RS, const Eigen::Matrix<double, mu_dim, Eigen::Dynamic>& mu_array) noexcept
         : info(info), RS(RS), mu_array(mu_array) {
         Sc1 = info.C - info.M_0.transpose() * info.C_hat.topLeftCorner<M_dim, M_dim>() * info.M_0;
     }
-    void operator()(const state_t& in, state_t& out, double t) const {
+    void operator()(const state_t& in, state_t& out, double t) const noexcept {
         const Eigen::Index _dim = info.A.rows();
-        Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * mu_array.col(RS.time_nearest(t));
+        Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * mu_array.col(RS.time_idx(t));
         auto p = in.topRows<dim>(_dim);
-        out.bottomRows<dim>(_dim).noalias() = -RS.S_inv_nearest(t, Sc1 * p);
-        out.topRows<dim>(_dim).noalias() = info.A * p - RS.R(t) * out.bottomRows<dim>(_dim);
-        state_t tmp;
-        tmp.setZero();
-        tmp.topRows<dim>(_dim) = info.L_0 * C_mu.bottomRows(info.L_0.cols());
-        tmp.bottomRows<dim>(_dim) = -RS.S_inv_nearest(t, info.M_0.transpose() * C_mu.topRows(info.M_0.rows()));
-        tmp.topRows<dim>(_dim) -= RS.R(t) * tmp.bottomRows<dim>(_dim);
-        out += tmp;
+        Eigen::Matrix<double, dim, 1> tmp;
+        tmp.noalias() = Sc1 * p + (info.M_0.transpose() * C_mu.topRows<M_dim>(info.M_0.rows()));
+        out.bottomRows<dim>(_dim) = -RS.S_inv(t, tmp);
+        out.topRows<dim>(_dim).noalias() = info.A * p - RS.R(t) * out.bottomRows<dim>(_dim) + info.L_0 * C_mu.bottomRows<L_dim>(info.L_0.cols());
+    }
+    state_t operator()(std::size_t t, const Eigen::Ref<const state_t>& in) const noexcept {
+        const Eigen::Index _dim = info.A.rows();
+        Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat * mu_array.col(t);
+        auto p = in.topRows<dim>(_dim);
+        Eigen::Matrix<double, dim, 1> tmp;
+        tmp = Sc1 * p + (info.M_0.transpose() * C_mu.topRows<M_dim>(info.M_0.rows()));
+        state_t out;
+        out.bottomRows<dim>(_dim) = -RS.S_inv(t, tmp);
+        out.topRows<dim>(_dim) = info.A * p - RS[t].first * out.bottomRows<dim>(_dim) + (info.L_0 * C_mu.bottomRows<L_dim>(info.L_0.cols()));
+        return out;
+    }
+};
+
+struct pre_discretized_rk4_stepper {
+    typedef state_t state_type;
+    typedef state_type deriv_type;
+    typedef double time_type;
+    typedef double value_type;
+    typedef std::uint_least8_t order_type;
+    typedef boost::numeric::odeint::stepper_tag stepper_category;
+    static constexpr order_type order() {
+        return 4;
+    }
+private:
+    Eigen::Matrix<double, 2 * dim, 4, Eigen::RowMajor> k;
+    alignas(64) static constexpr double _coeffs[4] = { 1. / 3., 2. / 3., 2. / 3., 1. / 3. };
+    const double half_h;
+    std::size_t counter = 0;
+public:
+    pre_discretized_rk4_stepper(double h) noexcept : half_h(0.5 * h) {}
+    void reset() noexcept {
+        counter = 0;
+    }
+    template <typename T>
+    void do_step(const T& sys, Eigen::Ref<state_type> x, time_type, time_type) noexcept {
+        k.col(0) = sys(counter, x);
+        ++counter;
+        k.col(1) = sys(counter, x + half_h * k.col(0));
+        k.col(2) = sys(counter, x + half_h * k.col(1));
+        ++counter;
+        k.col(3) = sys(counter, x + (2 * half_h) * k.col(2));
+        Eigen::Map<const Eigen::Matrix<double, 4, 1>, Eigen::Aligned64> rk_coeffs(_coeffs);
+        x += k * (half_h * rk_coeffs);
     }
 };
