@@ -11,11 +11,7 @@ typedef Eigen::Matrix<double, 2 * dim, 1> state_t;
 namespace boost::numeric::odeint::detail {
     template<int Rows, int Cols>
     struct is_range<Eigen::Matrix<double, Rows, Cols>> :
-#if BOOST_VERSION >= 185000
     std::integral_constant<bool, (Rows < 0 || Cols < 0)>
-#else
-    mpl::bool_<(Rows < 0 || Cols < 0)>
-#endif
     {};
 }
 
@@ -61,7 +57,7 @@ struct closed_loop_with_r {
     const PDE_info& info;
     closed_loop_with_r(const PDE_info& info) noexcept : info(info) {}
     typedef Eigen::Matrix<double, 2 * dim + 1, 1> state_t;
-    void operator()(const state_t& in, state_t& out, double t) const {
+    void operator()(const state_t& in, state_t& out, double) const {
         const Eigen::Index _dim = info.A.rows();
         auto z = in.topRows<dim>(_dim);
         auto lambda = in.middleRows<dim>(_dim, _dim);
@@ -143,8 +139,47 @@ struct RS_backward {
     }
 };
 
+struct RS_closed_loop {
+    const PDE_info& info;
+    const RS_nearest& RS;
+    Eigen::Matrix<double, dim, dim> Sc1;
+    RS_closed_loop(const PDE_info& info, const RS_nearest& RS) noexcept
+        : info(info), RS(RS) {
+        Sc1 = info.C - info.M_0.transpose() * info.C_hat.topLeftCorner<M_dim, M_dim>() * info.M_0;
+    }
+    void operator()(const state_t& in, state_t& out, double t) const noexcept {
+        const Eigen::Index _dim = info.A.rows();
+        auto p = in.topRows<dim>(_dim);
+        auto q = in.bottomRows<dim>(_dim);
+        Eigen::Matrix<double, mu_dim, 1> eta;
+        eta.topRows<M_dim>() = info.M_0 * (p + RS.R(t) * q);
+        eta.bottomRows<L_dim>() = info.L_0.transpose() * (RS.S(t) * q);
+        Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat_eta_inv(eta);
+        Eigen::Matrix<double, dim, 1> tmp;
+        tmp.noalias() = Sc1 * p + (info.M_0.transpose() * C_mu.topRows<M_dim>(info.M_0.rows()));
+        out.bottomRows<dim>(_dim) = -RS.S_inv(t, tmp);
+        out.topRows<dim>(_dim).noalias() = info.A * p - RS.R(t) * out.bottomRows<dim>(_dim) + info.L_0 * C_mu.bottomRows<L_dim>(info.L_0.cols());
+    }
+    state_t operator()(std::size_t t, const Eigen::Ref<const state_t>& in) const noexcept {
+        const Eigen::Index _dim = info.A.rows();
+        auto p = in.topRows<dim>(_dim);
+        auto q = in.bottomRows<dim>(_dim);
+        Eigen::Matrix<double, mu_dim, 1> eta;
+        eta.topRows<M_dim>() = info.M_0 * (p + RS[t].first * q);
+        eta.bottomRows<L_dim>() = info.L_0.transpose() * (RS[t].second * q);
+        Eigen::Matrix<double, mu_dim, 1> C_mu = info.C_hat_eta_inv(eta);
+        Eigen::Matrix<double, dim, 1> tmp;
+        tmp = Sc1 * p + (info.M_0.transpose() * C_mu.topRows<M_dim>(info.M_0.rows()));
+        state_t out;
+        out.bottomRows<dim>(_dim) = -RS.S_inv(t, tmp);
+        out.topRows<dim>(_dim) = info.A * p - RS[t].first * out.bottomRows<dim>(_dim) + (info.L_0 * C_mu.bottomRows<L_dim>(info.L_0.cols()));
+        return out;
+    }
+};
+
+template <typename _state_type = state_t>
 struct pre_discretized_rk4_stepper {
-    typedef state_t state_type;
+    typedef _state_type state_type;
     typedef state_type deriv_type;
     typedef double time_type;
     typedef double value_type;
@@ -154,7 +189,7 @@ struct pre_discretized_rk4_stepper {
         return 4;
     }
 private:
-    Eigen::Matrix<double, 2 * dim, 4, Eigen::RowMajor> k;
+    Eigen::Matrix<double, state_type::RowsAtCompileTime, 4, Eigen::RowMajor> k;
     alignas(64) static constexpr double _coeffs[4] = { 1. / 3., 2. / 3., 2. / 3., 1. / 3. };
     const double half_h;
     std::size_t counter = 0;

@@ -156,14 +156,63 @@ public:
 #include "numpy/arrayobject.h"
 #include <new>
 
+struct Python_API_Exception {};
+
+template <class T, class U>
+T PyExc(T t, U fail_ret) {
+    if (t == fail_ret)
+        throw Python_API_Exception();
+    return t;
+}
+
+template <class T, class U>
+T PyOnly(T t, U good_ret) {
+    if (t != good_ret)
+        throw Python_API_Exception();
+    return t;
+}
+
 struct _solver : PyObject, solver {};
+
+PyArrayObject* validate_numpy_array(PyObject* arr, NPY_TYPES type) {
+    if (!PyArray_Check(arr))
+        throw;
+    auto ret = reinterpret_cast<PyArrayObject*>(arr);
+    if (PyArray_TYPE(ret) != type)
+        throw;
+    return ret;
+}
+
+PyObject* N_tilde(PyObject* self, PyObject* const args[], Py_ssize_t argc) {
+    if (argc != 2)
+        return nullptr;
+    PyArrayObject* const _x = validate_numpy_array(args[0], NPY_DOUBLE);
+    PyArrayObject* const _p = validate_numpy_array(args[1], NPY_DOUBLE);
+    Eigen::Matrix<double, M_dim, Eigen::Dynamic> x(M_dim, PyArray_SIZE(_x));
+    Eigen::Matrix<double, L_dim, Eigen::Dynamic> p(L_dim, PyArray_SIZE(_p));
+    if (x.size() != p.size())
+        return nullptr;
+    std::copy(static_cast<double*>(PyArray_DATA(_x)), static_cast<double*>(PyArray_DATA(_x)) + PyArray_SIZE(_x), x.data());
+    std::copy(static_cast<double*>(PyArray_DATA(_p)), static_cast<double*>(PyArray_DATA(_p)) + PyArray_SIZE(_p), p.data());
+    using namespace nonlinearity;
+    Eigen::Matrix<double, 1, Eigen::Dynamic> ret = l(x) + (p.array() * f(x).array()).matrix();
+    npy_intp dims = x.size();
+    PyArrayObject* py_ret = reinterpret_cast<PyArrayObject*>(PyExc(PyArray_SimpleNew(1, &dims, NPY_DOUBLE), nullptr));
+    std::copy_n(ret.data(), ret.size(), static_cast<double*>(PyArray_DATA(py_ret)));
+    return reinterpret_cast<PyObject*>(py_ret);
+}
+
+static PyMethodDef methods[] = {
+    {"N_tilde", reinterpret_cast<PyCFunction>(N_tilde), METH_FASTCALL, ""},
+    {nullptr}
+};
 
 static PyModuleDef Module = {
     PyModuleDef_HEAD_INIT,
     "HJB_solve",
     "",
     -1,
-    nullptr,
+    methods,
     nullptr,
     nullptr,
     nullptr,
@@ -190,22 +239,6 @@ template <typename T>
 T numpy_to_eigen(PyArrayObject* arr) {
     npy_intp* dim = PyArray_SHAPE(arr);
     return Eigen::Map<T, Eigen::Aligned8>(static_cast<T::Scalar*>(PyArray_DATA(arr)), dim[0], dim[1]);
-}
-
-struct Python_API_Exception {};
-
-template <class T, class U>
-T PyExc(T t, U fail_ret) {
-    if (t == fail_ret)
-        throw Python_API_Exception();
-    return t;
-}
-
-template <class T, class U>
-T PyOnly(T t, U good_ret) {
-    if (t != good_ret)
-        throw Python_API_Exception();
-    return t;
 }
 
 int init(PyObject* self, PyObject* args, PyObject* kwds) noexcept {
@@ -261,20 +294,11 @@ std::vector<double> logspace(double begin, double end, std::size_t size) {
     return lin;
 }
 
-PyArrayObject* validate_numpy_array(PyObject* arr, NPY_TYPES type) {
-    if (!PyArray_Check(arr))
-        throw;
-    auto ret = reinterpret_cast<PyArrayObject*>(arr);
-    if (PyArray_TYPE(ret) != type)
-        throw;
-    return ret;
-}
-
 PyObject* solve(PyObject* self, PyObject* const args[], Py_ssize_t argc) {
     Eigen::Matrix<double, dim, 1> x;
     std::vector<double> t;
     std::vector<std::size_t> N;
-    std::vector<double> errs = logspace(-2, -27, 5);
+    std::vector<double> errs = logspace(-3, -23, 5);
     if (argc < 3)
         return nullptr;
     PyArrayObject* const _x = validate_numpy_array(args[0], NPY_DOUBLE);
@@ -299,7 +323,7 @@ PyObject* solve(PyObject* self, PyObject* const args[], Py_ssize_t argc) {
     return py_ret;
 }
 
-static PyMethodDef methods[] = {
+static PyMethodDef solver_methods[] = {
     {"solve", reinterpret_cast<PyCFunction>(solve), METH_FASTCALL, "solve(x), solve for the mu process passing through (t[0], x)."},
     {nullptr}
 };
@@ -311,7 +335,7 @@ PyTypeObject optimal_control_problem_type {
     .tp_itemsize = 0,
     .tp_dealloc = dealloc,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_methods = methods,
+    .tp_methods = solver_methods,
     .tp_init = init,
     .tp_alloc = alloc,
     .tp_new = PyType_GenericNew,

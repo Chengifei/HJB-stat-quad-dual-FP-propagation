@@ -64,9 +64,11 @@ public:
     const Eigen::Matrix<double, dim, dim>& R_end() const noexcept {
         return _R.back();
     }
+/*
     Eigen::Matrix<double, dim, 1> S_inv(double t, const Eigen::Matrix<double, dim, 1>& vec) const {
         return _S_inv[time_idx(t)].solve(vec);
     }
+*/
     Eigen::Matrix<double, dim, 1> S_inv(std::size_t t, const Eigen::Matrix<double, dim, 1>& vec) const {
         return _S_inv[t].solve(vec);
     }
