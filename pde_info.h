@@ -34,7 +34,7 @@ namespace nonlinearity {
         ret(0, 0) = -std::cos(M0x[0]);
         return ret;
     }
-
+/*
     template <alpha_sized T>
     __attribute__((pure)) auto f(const Eigen::MatrixBase<T>& M0x) noexcept {
         return M0x.array().atan().matrix();
@@ -42,6 +42,24 @@ namespace nonlinearity {
     template <alpha_sized T>
     __attribute__((pure)) auto f_der(const Eigen::MatrixBase<T>& M0x) noexcept {
         auto sqr = M0x.array().abs2();
+        return (1 / (sqr + 1)).matrix();
+    }
+    __attribute__((pure)) inline std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim>
+    f_dder(const Eigen::Matrix<double, M_dim, 1>& M0x) noexcept {
+        std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim> ret;
+        const double tmp = M0x[0] * M0x[0] + 1;
+        ret[0] = -2 * M0x / (tmp * tmp);
+        return ret;
+    }
+*/
+
+    template <alpha_sized T>
+    __attribute__((pure)) auto f(const Eigen::MatrixBase<T>& M0x) noexcept {
+        return (1 + M0x.array().exp()).log().matrix();
+    }
+    template <alpha_sized T>
+    __attribute__((pure)) auto f_der(const Eigen::MatrixBase<T>& M0x) noexcept {
+        auto sqr = (-M0x).array().exp();
         return (1 / (sqr + 1)).matrix();
     }
     __attribute__((pure)) inline std::array<Eigen::Matrix<double, M_dim, M_dim>, L_dim>
