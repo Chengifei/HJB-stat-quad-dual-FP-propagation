@@ -4,8 +4,11 @@ function [qs,rs,qv,rv]=qrintegrals(t1v,alphav,Phibarst,...
 % Obtain q_s and r_s by integration.
 %
 % input variables:
+%   t1v - time vector
+%   alphav - \alpha process (evaluated at t1v)
+%   Phibarst, M0, c1, Gammatilde
 %   as usual...
-%   funcparams - theta function parameters ([ktemp,eps]).
+%   funcparams - theta function parameters.
 %
 % output variables:
 %   q - q at initial time (t1v(1,1)), i.e., q_s in paper.

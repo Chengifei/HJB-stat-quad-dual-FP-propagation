@@ -10,10 +10,8 @@ function [alphav]=etainverse(etav,alphastartv,funcparams,c1)
 %   etav - a vector of eta values.
 %   alphastartv - starting guess of the alpha values for the fixed-point
 %                 iteration.
-%   funcparams - the parameters ([ktemp,eps]).
+%   funcparams - the nonlinearity
 %   c1 - c_1.
-%   % internal now. nmax - maximum allowable number of iterations.
-%   % internal now. convcrit - convergence criterion for the iteration.
 %
 % output values:
 %   alphav - a vector of alpha=eta^{-1}(eta) values.

@@ -13,6 +13,10 @@ function [sol,res,status]=newtonforeta(omegav,c1,...
 %   c1 - c_1.
 %   funcparams - [k,eps] parameters defining \theta function.
 %
+% outputs:
+%   sol - the argstat
+%   res - residuals
+%   status - 0 for fail 1 for success
 grad_theta = funcparams{2};
 sol = zeros(size(omegav));
 res = zeros(size(omegav));

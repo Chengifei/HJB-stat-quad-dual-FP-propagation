@@ -11,12 +11,6 @@ function [dalpdtv,dadtalpTpartv,matgradeta,derofintmat]=...
 %                                                              %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
-%
-%
-%
-%
-% N.B.: ASSUMES $\Theta(\alpha)=\atan(\alpha)$!!!!!!
-%
 % Note also that multiple items have only been obtained for the particular
 % value of T (equiv locTp1) input - not for all T.+
 %
@@ -33,6 +27,7 @@ function [dalpdtv,dadtalpTpartv,matgradeta,derofintmat]=...
 %   Abarpv - array of transposes of time-dependent linear dynamics
 %            associated to q
 %   alphav - time-indexed (hor) vector of alpha^T(\cdot) values.
+%   DMz - \cDbreve * M^0, see paper
 %   matgradeta - diagonal matrix whose elements are the gradient of
 %               eta wrt alpha.
 %   locTp1 - the position of T in t1v, i.e., where T=t1v(1,locTp1).

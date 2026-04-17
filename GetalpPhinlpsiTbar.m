@@ -2,9 +2,6 @@ function [alphafullv]=...
     GetalpPhinlpsiTbar(M0,c1,t1v,Phibarst,DMz,...
     nt0,alpha0v,alphastartv,funcparams)
 %
-% N.B.: ASSUMES $\Theta(\alpha)=\atan(\alpha)$!!!!!!
-%
-%
 % Obtain Phibarst, Phibarstp, alpha0v and alphav.
 %
 % input variables:
@@ -25,7 +22,7 @@ function [alphafullv]=...
 %   alpha0v - time-indexed (hor) vector of alpha values at init times.
 %   alphastartv - alpha function vector for start of fixed-point iteration.
 %               This is ignored if first==1.
-%   funcparams - the parameters ([ktemp,eps]).
+%   funcparams - the nonlinearity.
 %
 % output variables:
 %  alphav - time-indexed (hor) vector of alpha^T(\cdot) values.

@@ -1,14 +1,12 @@
 function [backsubserr,relbacksuberr]=backsubsalpnlTbar(alphachkv,...
     M0,c1,dim,t1v,DMz,alpha0v,locTp1,funcparams)
 %
-% N.B.: ASSUMES $\Theta(\alpha)=\atan(\alpha)$!!!!!!
-%
 % Backsubstitution check of our alpha vector
 % (representing the alpha function of time).
 % This is the nonlinear version, i.e., for $\grad\Theta\not=0$.
 %
 %
-% inut variables:
+% input variables:
 %   alphachkv - the alpha vector to be checked.
 %   alpha0v - current initial alpha (at t=0).
 %   M0,c1,dim,t1v - parameters
@@ -18,7 +16,7 @@ function [backsubserr,relbacksuberr]=backsubsalpnlTbar(alphachkv,...
 %       the use of \Tbar with s\in (T,\Tbar] is a mathematical
 %       artifact that is useful for obtaing the function over [t,T].
 %   locTp1 - the position of T in t1v, i.e., where T=t1v(1,locT+1).
-%   funcparams - the parameters ([ktemp,eps]).
+%   funcparams - the nonlinearity.
 %
 %
 % functions called:

@@ -17,21 +17,16 @@ function [allalpham,t1vfinal,relbacksuberr]=...
 %
 % input variables:
 %   M0 - matrix that defines the state-components in the nonlinearity
-%   Abarv,Abarpv - array of time-dependent linear dynamics associated to q
+%   Abarv - array of time-dependent linear dynamics associated to q
 %   Phibarst,Phibarstp,Dssig,Dpsigs,DMz - see paper.
+%   alpha0v - initial guess for alpha
 %   x1 - first component of a specific initial state
 %        This is only needed as an input to Checkinitialalpha (a
 %          function that is not needed for propagation, that is, it's only
 %          a check that is used in debugging).
 %   c1 - coefficient used in the stat-quad duality
-%   t0 - initial time (constant)
-%   Tbar - [extended] terminal time for entire process. 
-%   nt0 - number of steps over [t0,t10] for getting alpha with that
-%           initial terminal time.
-%   numstep - the number of steps the code will propagate t10 forward
-%               to a later terminal time. Note that the step-size
-%               is h=(t10-t0)/nt0, and hence it propagates forward to
-%               terminal terminal time \Tbar=t10+numstep*h.
+%   tfullv - time discretization points
+%   nt0 - number of steps over [0, tfullv(nt0)] for getting alpha
 %   funcparams - the parameters ([ktemp,eps]).
 %
 % output variables:

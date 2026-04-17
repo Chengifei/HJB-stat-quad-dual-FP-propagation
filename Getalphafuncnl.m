@@ -1,8 +1,6 @@
 function [alphav]=Getalphafuncnl(M0,c1,t1v,...
     DMz,alpha0v,alphastartv,funcparams,~)
 %
-% N.B.: HAS A HARDWIRED Theta FUNCTION (dependent on funcparams only)!
-%
 % Uses the fixed=point method for computation of alpha vector
 % representing the alpha function of time.
 % This is the nonlinear version, i.e., for $\grad\Theta\not=0$.
@@ -13,7 +11,7 @@ function [alphav]=Getalphafuncnl(M0,c1,t1v,...
 %   DMz - internal variable to the code
 %   alpha0v - alpha function/vector at time zero (the function of x).
 %   alphastartv - starting point for the fixed-point iteration.
-%   funcparams - the parameters ([ktemp,eps]).
+%   funcparams - the nonlinearity.
 %   whichmethod - 1 for fixed-point method 1 and 2 for method 2.
 %
 % output variables:
