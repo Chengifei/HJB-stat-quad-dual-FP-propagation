@@ -1,5 +1,20 @@
 function [Warray, relbacksubserrpropmat, rel_error] = main(A, ...
     C, c1, M0, ynoncompv, Gammatilde, tfullv, X1, X2, ycenter, icomp, inoncompv, funcparams, bc)
+% Inputs:
+% A -- A matrix in dynamics
+% C -- C matrix in running cost
+% c1 -- dualizing coefficient for \Theta
+% M0 -- controls the domain of nonlinearity
+% ynoncompv, ycenter -- controls the affine shift of the plane where HJB is solved
+%   ycenter is deprecated
+% tfullv -- discretized time grid
+% X1, X2 -- spatial grids
+% bc -- bool, whether to perform backsubstitution checks
+% funcparams -- nonlinearity
+% Outputs:
+% Warray -- value function
+% relbacksuberrpropmat -- propagation error
+% rel_error -- PDE back substitution error
 assert(all(size(X1) == size(X2)));
 t_rev = tfullv(end:-1:1); % reversed t vector
 nt1=30; % number of time steps used in fixed-point iterations

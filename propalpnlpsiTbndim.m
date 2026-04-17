@@ -2,8 +2,6 @@ function [allalpham,t1vfinal,relbacksuberr]=...
     propalpnlpsiTbndim(M0,Abarv,Phibarst,...
     DMz,alpha0v,c1,tfullv,nt0,funcparams)
 %
-% function form of tpropagatealphanl
-%
 % First, for the "initial terminal time", it uses a fixed-point method
 % to obtain alpha^T_\cdot where superscript T indicate the terminal time.
 % Note that for T (initial terminal time) sufficiently small, the 
@@ -12,7 +10,7 @@ function [allalpham,t1vfinal,relbacksuberr]=...
 % propagates \alpha^T_\cdot as a function of terminal time T forward from
 % the initial terminal value (t10) forward numstep steps.
 %
-% Currently assuming L^0=0, m=1 (and maybe n=2).
+% Currently assuming L^0=0, m=1.
 %
 %
 % input variables:
@@ -27,7 +25,7 @@ function [allalpham,t1vfinal,relbacksuberr]=...
 %   c1 - coefficient used in the stat-quad duality
 %   tfullv - time discretization points
 %   nt0 - number of steps over [0, tfullv(nt0)] for getting alpha
-%   funcparams - the parameters ([ktemp,eps]).
+%   funcparams - nonlinearity.
 %
 % output variables:
 %    allalpham - an (numstep+1)x(nto+numstep+1) array where the ith row
